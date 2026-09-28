@@ -14,6 +14,8 @@
 
 Agamejam2Character::Agamejam2Character()
 {
+	PrimaryActorTick.bCanEverTick = true;
+
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -130,4 +132,33 @@ void Agamejam2Character::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+void Agamejam2Character::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	const bool bIsFalling = GetCharacterMovement()->IsFalling();
+	const float CurrentZ = GetActorLocation().Z;
+
+	if (!bIsFalling)
+	{
+		// На земле запоминаем нормальную высоту персонажа
+		GroundCameraZ = CurrentZ;
+
+		// Никакой компенсации не требуется
+		FVector Offset = CameraBoom->TargetOffset;
+		Offset.Z = 0.0f;
+		CameraBoom->TargetOffset = Offset;
+	}
+	else
+	{
+		// Насколько персонаж поднялся/опустился относительно точки прыжка
+		const float JumpOffsetZ = GroundCameraZ - CurrentZ;
+
+		// TargetOffset работает в WORLD SPACE
+		FVector Offset = CameraBoom->TargetOffset;
+		Offset.Z = JumpOffsetZ;
+		CameraBoom->TargetOffset = Offset;
+	}
 }

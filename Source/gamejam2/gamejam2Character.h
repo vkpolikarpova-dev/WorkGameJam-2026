@@ -54,6 +54,8 @@ public:
 	/** Constructor */
 	Agamejam2Character();	
 
+	virtual void Tick(float DeltaTime) override;
+
 protected:
 
 	/** Initialize input action bindings */
@@ -84,6 +86,11 @@ public:
 	/** Handles jump pressed inputs from either controls or UI interfaces */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoJumpEnd();
+
+private:
+
+	float GroundCameraZ = 0.0f;
+	bool bWasFalling = false;
 
 public:
 
