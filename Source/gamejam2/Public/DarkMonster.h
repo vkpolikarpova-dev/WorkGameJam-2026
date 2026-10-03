@@ -10,63 +10,104 @@ class GAMEJAM2_API ADarkMonster : public ACharacter
 	GENERATED_BODY()
 
 public:
+
 	ADarkMonster();
 
 	virtual void Tick(float DeltaTime) override;
 
-	// Вызывается из BP_LightSource, когда монстр попадает в активный свет
+	// Игрок вошёл в территорию монстра
+	UFUNCTION(BlueprintCallable, Category = "Monster|Zone")
+	void PlayerEnteredMonsterZone();
+
+	// Игрок вышел из территории монстра
+	UFUNCTION(BlueprintCallable, Category = "Monster|Zone")
+	void PlayerLeftMonsterZone();
+
+	// Игрок вошёл в активную световую безопасную зону
 	UFUNCTION(BlueprintCallable, Category = "Monster|Light")
-	void FleeFromLight(AActor* LightSource);
+	void PlayerEnteredLightZone();
 
-protected:
-	virtual void BeginPlay() override;
+	// Игрок вышел из световой зоны
+	// ИЛИ свет в этой зоне был выключен/забран
+	UFUNCTION(BlueprintCallable, Category = "Monster|Light")
+	void PlayerLeftLightZone();
 
-	// ===== ПОГОНЯ =====
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Chase")
-	float DetectionRadius = 800.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Chase")
-	float MonsterSpeed = 180.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Chase")
-	float MoveUpdateInterval = 0.25f;
-
-
-	// ===== ВЫСАСЫВАНИЕ СВЕТА =====
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Drain")
-	float DrainRadius = 120.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Drain")
-	float DrainAmount = 5.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Drain")
-	float DrainInterval = 1.0f;
-
+	// Уменьшение света игрока реализовано в BP_DarkMonster
 	UFUNCTION(BlueprintImplementableEvent, Category = "Monster|Drain")
 	void DrainPlayerLight(AActor* Player, float Amount);
 
+protected:
 
-	// ===== ВОЗВРАТ НА СПАВН =====
-
-	// Насколько близко нужно подойти к стартовой точке,
-	// чтобы считать, что монстр вернулся
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Monster|Light")
-	float SpawnAcceptanceRadius = 80.0f;
+	virtual void BeginPlay() override;
 
 private:
-	UPROPERTY()
-	AActor* PlayerActor = nullptr;
 
-	FVector SpawnLocation;
-
-	float DrainTimer = 0.0f;
-	float MoveUpdateTimer = 0.0f;
-
-	bool bReturningToSpawn = false;
+	// ==============================
+	// ПОГОНЯ
+	// ==============================
 
 	void UpdateChase();
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Chase")
+	float MonsterSpeed = 180.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Chase")
+	float MoveUpdateInterval = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Chase")
+	float ChaseAcceptanceRadius = 20.0f;
+
+	float MoveUpdateTimer = 0.0f;
+
+
+	// ==============================
+	// ВЫСАСЫВАНИЕ СВЕТА
+	// ==============================
+
 	void UpdateDrain(float DeltaTime);
-	void UpdateReturnToSpawn();
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Drain")
+	float DrainRadius = 120.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Drain")
+	float DrainAmount = 5.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Drain")
+	float DrainInterval = 1.0f;
+
+	float DrainTimer = 0.0f;
+
+
+	// ==============================
+	// ВОЗВРАЩЕНИЕ ДОМОЙ
+	// ==============================
+
+	void StartReturnHome();
+	void UpdateReturnHome();
+	bool IsAtHome() const;
+
+	UPROPERTY(EditAnywhere, Category = "Monster|Return")
+	float SpawnAcceptanceRadius = 40.0f;
+
+	FVector SpawnLocation = FVector::ZeroVector;
+
+	bool bReturningHome = false;
+
+
+	// ==============================
+	// СОСТОЯНИЕ
+	// ==============================
+
+	// Игрок физически находится внутри BP_MonsterZone
+	bool bPlayerInsideMonsterZone = false;
+
+	// Игрок сейчас защищён активным светом
+	bool bPlayerProtectedByLight = false;
+
+
+	// ==============================
+	// ИГРОК
+	// ==============================
+
+	AActor* PlayerActor = nullptr;
 };

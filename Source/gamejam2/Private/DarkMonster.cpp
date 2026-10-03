@@ -4,6 +4,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
+
 ADarkMonster::ADarkMonster()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -12,17 +13,148 @@ ADarkMonster::ADarkMonster()
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
 
+
 void ADarkMonster::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Запоминаем место, где монстр стоял при запуске игры
+	// Точка, куда монстр всегда возвращается
 	SpawnLocation = GetActorLocation();
 
 	PlayerActor = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
 
 	GetCharacterMovement()->MaxWalkSpeed = MonsterSpeed;
+
+	bPlayerInsideMonsterZone = false;
+	bPlayerProtectedByLight = false;
+	bReturningHome = false;
+
+	DrainTimer = 0.0f;
+	MoveUpdateTimer = 0.0f;
 }
+
+
+// =====================================================
+// ИГРОК ВОШЁЛ В ЗОНУ МОНСТРА
+// =====================================================
+
+void ADarkMonster::PlayerEnteredMonsterZone()
+{
+	bPlayerInsideMonsterZone = true;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("PLAYER ENTERED MONSTER ZONE")
+	);
+
+	// Если игрок не защищён светом,
+	// монстр должен сразу снова стать активным.
+	if (!bPlayerProtectedByLight)
+	{
+		bReturningHome = false;
+
+		AAIController* MonsterAIController =
+			Cast<AAIController>(GetController());
+
+		if (MonsterAIController)
+		{
+			MonsterAIController->StopMovement();
+		}
+
+		MoveUpdateTimer = MoveUpdateInterval;
+	}
+}
+
+
+// =====================================================
+// ИГРОК ВЫШЕЛ ИЗ ЗОНЫ МОНСТРА
+// =====================================================
+
+void ADarkMonster::PlayerLeftMonsterZone()
+{
+	bPlayerInsideMonsterZone = false;
+
+	DrainTimer = 0.0f;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("PLAYER LEFT MONSTER ZONE")
+	);
+
+	// Игрок ушёл с территории —
+	// монстр возвращается домой.
+	StartReturnHome();
+}
+
+
+// =====================================================
+// ИГРОК ВОШЁЛ В АКТИВНУЮ СВЕТОВУЮ ЗОНУ
+// =====================================================
+
+void ADarkMonster::PlayerEnteredLightZone()
+{
+	bPlayerProtectedByLight = true;
+
+	DrainTimer = 0.0f;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("PLAYER ENTERED LIGHT ZONE")
+	);
+
+	// Свет отпугивает монстра.
+	StartReturnHome();
+}
+
+
+// =====================================================
+// ИГРОК ВЫШЕЛ ИЗ СВЕТА / СВЕТ ВЫКЛЮЧИЛСЯ
+// =====================================================
+
+void ADarkMonster::PlayerLeftLightZone()
+{
+	bPlayerProtectedByLight = false;
+
+	DrainTimer = 0.0f;
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("PLAYER LEFT LIGHT ZONE")
+	);
+
+	// Если игрок всё ещё на территории монстра,
+	// монстр прекращает возвращение домой
+	// и снова начинает погоню.
+	if (bPlayerInsideMonsterZone)
+	{
+		bReturningHome = false;
+
+		AAIController* MonsterAIController =
+			Cast<AAIController>(GetController());
+
+		if (MonsterAIController)
+		{
+			MonsterAIController->StopMovement();
+		}
+
+		MoveUpdateTimer = MoveUpdateInterval;
+	}
+	else
+	{
+		// Игрок вообще ушёл из MonsterZone,
+		// поэтому продолжаем возвращаться домой.
+		StartReturnHome();
+	}
+}
+
+
+// =====================================================
+// TICK
+// =====================================================
 
 void ADarkMonster::Tick(float DeltaTime)
 {
@@ -38,28 +170,87 @@ void ADarkMonster::Tick(float DeltaTime)
 		}
 	}
 
-	// Если монстр был отпугнут светом,
-	// погоня и высасывание света отключаются
-	if (bReturningToSpawn)
+
+	// =================================================
+	// ЕСЛИ ИГРОК ВНЕ ЗОНЫ ИЛИ ЗАЩИЩЁН СВЕТОМ
+	// =================================================
+
+	if (!bPlayerInsideMonsterZone || bPlayerProtectedByLight)
 	{
-		UpdateReturnToSpawn();
+		// Если монстр ещё не дома — возвращаем.
+		if (!IsAtHome())
+		{
+			if (!bReturningHome)
+			{
+				StartReturnHome();
+			}
+
+			UpdateReturnHome();
+		}
+		else
+		{
+			AAIController* MonsterAIController =
+				Cast<AAIController>(GetController());
+
+			if (MonsterAIController)
+			{
+				MonsterAIController->StopMovement();
+			}
+
+			bReturningHome = false;
+		}
+
 		return;
 	}
 
-	// ===== ПОГОНЯ =====
+
+	// =================================================
+	// ИГРОК В MONSTER ZONE И НЕ ЗАЩИЩЁН
+	// =================================================
+
+	// Если до этого монстр возвращался домой —
+	// отменяем возврат.
+	if (bReturningHome)
+	{
+		bReturningHome = false;
+
+		AAIController* MonsterAIController =
+			Cast<AAIController>(GetController());
+
+		if (MonsterAIController)
+		{
+			MonsterAIController->StopMovement();
+		}
+
+		MoveUpdateTimer = MoveUpdateInterval;
+	}
+
+
+	// ==============================
+	// ПОГОНЯ
+	// ==============================
 
 	MoveUpdateTimer += DeltaTime;
 
 	if (MoveUpdateTimer >= MoveUpdateInterval)
 	{
 		MoveUpdateTimer = 0.0f;
+
 		UpdateChase();
 	}
 
-	// ===== ВЫСАСЫВАНИЕ СВЕТА =====
+
+	// ==============================
+	// ВЫСАСЫВАНИЕ
+	// ==============================
 
 	UpdateDrain(DeltaTime);
 }
+
+
+// =====================================================
+// ПОГОНЯ
+// =====================================================
 
 void ADarkMonster::UpdateChase()
 {
@@ -68,11 +259,15 @@ void ADarkMonster::UpdateChase()
 		return;
 	}
 
-	const float DistanceToPlayer =
-		FVector::Dist(
-			GetActorLocation(),
-			PlayerActor->GetActorLocation()
-		);
+	if (!bPlayerInsideMonsterZone)
+	{
+		return;
+	}
+
+	if (bPlayerProtectedByLight)
+	{
+		return;
+	}
 
 	AAIController* MonsterAIController =
 		Cast<AAIController>(GetController());
@@ -82,26 +277,30 @@ void ADarkMonster::UpdateChase()
 		return;
 	}
 
-	if (DistanceToPlayer <= DetectionRadius)
-	{
-		MonsterAIController->MoveToActor(
-			PlayerActor,
-			DrainRadius * 0.75f,
-			true,
-			true,
-			true
-		);
-	}
-	else
-	{
-		MonsterAIController->StopMovement();
-	}
+	MonsterAIController->MoveToActor(
+		PlayerActor,
+		ChaseAcceptanceRadius,
+		false,
+		true,
+		true
+	);
 }
+
+
+// =====================================================
+// ВЫСАСЫВАНИЕ СВЕТА
+// =====================================================
 
 void ADarkMonster::UpdateDrain(float DeltaTime)
 {
 	if (!PlayerActor)
 	{
+		return;
+	}
+
+	if (!bPlayerInsideMonsterZone || bPlayerProtectedByLight)
+	{
+		DrainTimer = 0.0f;
 		return;
 	}
 
@@ -130,10 +329,26 @@ void ADarkMonster::UpdateDrain(float DeltaTime)
 	}
 }
 
-void ADarkMonster::FleeFromLight(AActor* LightSource)
+
+// =====================================================
+// НАЧАТЬ ВОЗВРАЩЕНИЕ ДОМОЙ
+// =====================================================
+
+void ADarkMonster::StartReturnHome()
 {
-	if (!LightSource)
+	// Если уже почти дома — просто останавливаемся.
+	if (IsAtHome())
 	{
+		AAIController* MonsterAIController =
+			Cast<AAIController>(GetController());
+
+		if (MonsterAIController)
+		{
+			MonsterAIController->StopMovement();
+		}
+
+		bReturningHome = false;
+
 		return;
 	}
 
@@ -145,60 +360,79 @@ void ADarkMonster::FleeFromLight(AActor* LightSource)
 		return;
 	}
 
-	// Включаем режим возвращения домой
-	bReturningToSpawn = true;
+	bReturningHome = true;
 
-	// На всякий случай сбрасываем таймер высасывания
 	DrainTimer = 0.0f;
 
-	// Отменяем погоню за игроком
+	// Останавливаем текущую погоню.
 	MonsterAIController->StopMovement();
 
-	// Отправляем монстра туда, где он появился
+	// И отправляем домой.
 	MonsterAIController->MoveToLocation(
 		SpawnLocation,
 		SpawnAcceptanceRadius,
-		true,
+		false,
 		true,
 		true,
 		false
 	);
+
+	UE_LOG(
+		LogTemp,
+		Warning,
+		TEXT("MONSTER RETURNING HOME")
+	);
 }
 
-void ADarkMonster::UpdateReturnToSpawn()
+
+// =====================================================
+// ОБНОВЛЕНИЕ ВОЗВРАТА
+// =====================================================
+
+void ADarkMonster::UpdateReturnHome()
 {
+	if (!bReturningHome)
+	{
+		return;
+	}
+
 	AAIController* MonsterAIController =
 		Cast<AAIController>(GetController());
 
 	if (!MonsterAIController)
 	{
+		bReturningHome = false;
 		return;
 	}
 
+	if (IsAtHome())
+	{
+		MonsterAIController->StopMovement();
+
+		bReturningHome = false;
+
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("MONSTER RETURNED HOME")
+		);
+
+		return;
+	}
+}
+
+
+// =====================================================
+// ПРОВЕРКА: МОНСТР ДОМА?
+// =====================================================
+
+bool ADarkMonster::IsAtHome() const
+{
 	const float DistanceToSpawn =
 		FVector::Dist2D(
 			GetActorLocation(),
 			SpawnLocation
 		);
 
-	// Уже вернулся домой
-	if (DistanceToSpawn <= SpawnAcceptanceRadius)
-	{
-		MonsterAIController->StopMovement();
-
-		bReturningToSpawn = false;
-
-		return;
-	}
-
-	// Продолжаем идти домой.
-	// Повторяем команду на случай перестроения NavMesh/маршрута.
-	MonsterAIController->MoveToLocation(
-		SpawnLocation,
-		SpawnAcceptanceRadius,
-		true,
-		true,
-		true,
-		false
-	);
+	return DistanceToSpawn <= SpawnAcceptanceRadius;
 }
